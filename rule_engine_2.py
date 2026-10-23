@@ -87,9 +87,101 @@ _rulesets = [
         ],
         "action": "HoldEUR",
     },
+    {
+        "id": "7",
+        "name": "No_Country",
+        "combinator": "AND",
+        "conditions": [
+            {"field": "country", "operator": "==", "value": "US"},
+        ],
+        "action": "Reject",
+    },
+    {
+        "id": "8",
+        "name": "No_Status",
+        "combinator": "AND",
+        "conditions": [
+            {"field": "status", "operator": "==", "value": "open"},
+        ],
+        "action": "Reject",
+    },
+    {
+        "id": "9",
+        "name": "No_Customer",
+        "combinator": "AND",
+        "conditions": [
+            {"field": "customer", "operator": "==", "value": "c1"},
+        ],
+        "action": "Reject",
+    },
+    {
+        "id": "10",
+        "name": "Wrong_Account",
+        "combinator": "AND",
+        "conditions": [
+            {"field": "account", "operator": "==", "value": "999"},
+        ],
+        "action": "Hold",
+    },
+    {
+        "id": "11",
+        "name": "Wrong_Note",
+        "combinator": "AND",
+        "conditions": [
+            {"field": "note", "operator": "==", "value": "missing"},
+        ],
+        "action": "FlagReview",
+    },
+    {
+        "id": "12",
+        "name": "Not_Flagged",
+        "combinator": "AND",
+        "conditions": [
+            {"field": "flagged", "operator": "==", "value": False},
+        ],
+        "action": "Log",
+    },
+    {
+        "id": "13",
+        "name": "Missing_Channel",
+        "combinator": "AND",
+        "conditions": [
+            {"field": "channel", "operator": "==", "value": "web"},
+            {"field": "amount", "operator": ">", "value": 0},
+        ],
+        "action": "SendAlert",
+    },
+    {
+        "id": "14",
+        "name": "Region_EU",
+        "combinator": "OR",
+        "conditions": [
+            {"field": "region", "operator": "==", "value": "EU"},
+            {"field": "currency", "operator": "==", "value": "EUR"},
+        ],
+        "action": "HoldEUR",
+    },
+    {
+        "id": "15",
+        "name": "Negative_Large",
+        "combinator": "AND",
+        "conditions": [
+            {"field": "amount", "operator": "<", "value": 0},
+            {"field": "amount", "operator": ">", "value": 10000},
+        ],
+        "action": "Escalate",
+    },
+    {
+        "id": "16",
+        "name": "Exact_Yuan_Zero",
+        "combinator": "AND",
+        "conditions": [
+            {"field": "amount", "operator": "==", "value": 0},
+            {"field": "currency", "operator": "==", "value": "YUAN"},
+        ],
+        "action": "Reject",
+    },
 ]
-
-from collections import defaultdict
 
 class RuleEngine:
     def add_conditions(self, conditions) -> list:
@@ -117,19 +209,27 @@ class RuleEngine:
 
         for ruleset in rulesets:
             conditions = ruleset["conditions"]
-            self.rulesFncs[ruleset["name"]] = self.add_conditions(conditions)
+            self.rulesFncs[ruleset["name"]] = {"conditions": self.add_conditions(conditions), "combinator": ruleset["combinator"]}
 
     def execute(self, dataset):
-        res = {}
+        self.res = defaultdict(list)
+        self.failures = defaultdict(list)
         for rule_name, rules in self.rulesFncs.items():
-            result = []
             for data in dataset:
-                fcns = [rule(data) for rule in rules]
-                if all(fcns):
-                    result.append(data)
-            res[rule_name] = result
+                try:
+                    combinator = rules["combinator"]
+                    if combinator == "AND":
+                        # This short circuit on the first false result
+                        if all(rule(data) for rule in rules["conditions"]):
+                            self.res[rule_name].append(data)
+                    elif combinator == "OR":
+                        # This short circuit on the first true result
+                        if any(rule(data) for rule in rules["conditions"]):
+                            self.res[rule_name].append(data)
+                except:
+                    self.failures[rule_name].append(data)
 
-        return res
+        return self.res
 
 
 def main() -> None:
@@ -141,12 +241,54 @@ def main() -> None:
     for rulename, transactions in res.items():
         dataset_ids[rulename] = [transaction["id"] for transaction in transactions]
     
-    assert set(dataset_ids["High_Value_Band"]) == {"4"}
-    assert set(dataset_ids["Small_Positive"]) == {"6", "7"}
-    assert set(dataset_ids["Zero_or_Above_16000"]) == {"8", "9"}
-    assert set(dataset_ids["USD_or_EUR"]) == {"1", "2", "4", "6", "8"}
-    assert set(dataset_ids["Large_USD"]) == {"2"}
-    assert set(dataset_ids["Euro"]) == {"4", "6"}
+    failure_ids = {
+        rulename: [transaction["id"] for transaction in transactions]
+        for rulename, transactions in rule_engine.failures.items()
+    }
+    every_id = {str(i) for i in range(1, 25)}
+
+    assert set(dataset_ids.get("High_Value_Band", [])) == {"4", "11", "22"}
+    assert set(dataset_ids.get("Small_Positive", [])) == {"6", "7", "17", "23"}
+    assert set(dataset_ids.get("Zero_or_Above_16000", [])) == {"8", "9", "18", "24"}
+    assert set(dataset_ids.get("USD_or_EUR", [])) == {
+        "1",
+        "2",
+        "4",
+        "6",
+        "8",
+        "10",
+        "14",
+        "20",
+    }
+    assert set(dataset_ids.get("Large_USD", [])) == {"2", "20"}
+    assert set(dataset_ids.get("Euro", [])) == {"4", "6"}
+    assert set(dataset_ids.get("No_Country", [])) == set()
+    assert set(dataset_ids.get("No_Status", [])) == set()
+    assert set(dataset_ids.get("No_Customer", [])) == set()
+    assert set(dataset_ids.get("Wrong_Account", [])) == set()
+    assert set(dataset_ids.get("Wrong_Note", [])) == set()
+    assert set(dataset_ids.get("Not_Flagged", [])) == set()
+    assert set(dataset_ids.get("Missing_Channel", [])) == set()
+    assert set(dataset_ids.get("Region_EU", [])) == set()
+    assert set(dataset_ids.get("Negative_Large", [])) == set()
+    assert set(dataset_ids.get("Exact_Yuan_Zero", [])) == set()
+
+    assert set(failure_ids.get("High_Value_Band", [])) == {"1", "10", "13", "15", "19", "21"}
+    assert set(failure_ids.get("Small_Positive", [])) == {"1", "10", "13", "15", "19", "21"}
+    assert set(failure_ids.get("Zero_or_Above_16000", [])) == {"1", "10", "13", "15", "19", "21"}
+    assert set(failure_ids.get("USD_or_EUR", [])) == {"16", "21"}
+    assert set(failure_ids.get("Large_USD", [])) == {"1", "10", "16", "21"}
+    assert set(failure_ids.get("Euro", [])) == {"16", "21"}
+    assert set(failure_ids.get("No_Country", [])) == every_id
+    assert set(failure_ids.get("No_Status", [])) == every_id
+    assert set(failure_ids.get("No_Customer", [])) == every_id
+    assert set(failure_ids.get("Wrong_Account", [])) == every_id - {"24"}
+    assert set(failure_ids.get("Wrong_Note", [])) == every_id - {"20"}
+    assert set(failure_ids.get("Not_Flagged", [])) == every_id - {"20"}
+    assert set(failure_ids.get("Missing_Channel", [])) == every_id
+    assert set(failure_ids.get("Region_EU", [])) == every_id
+    assert set(failure_ids.get("Negative_Large", [])) == {"1", "10", "13", "15", "19", "21"}
+    assert set(failure_ids.get("Exact_Yuan_Zero", [])) == {"1", "15", "21"}
 
 if __name__ == "__main__":
     main()
