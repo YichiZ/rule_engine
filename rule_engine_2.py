@@ -184,7 +184,8 @@ _rulesets = [
 ]
 
 class RuleEngine:
-    def add_conditions(self, conditions) -> list:
+    # This should be just 
+    def add_conditions(self, conditions, combinator) -> list:
         fncs = []
         for condition in conditions:
             if condition["operator"] == ">":
@@ -202,30 +203,27 @@ class RuleEngine:
                     x[field] == value
                 )
                 fncs.append(fcn)
-        return fncs
+
+        if combinator == "AND":
+            return lambda x: all(fnc(x) for fnc in fncs)
+        if combinator == "OR":
+            return lambda x: any(fnc(x) for fnc in fncs)
 
     def __init__(self, rulesets):
         self.rulesFncs = defaultdict(list)
 
         for ruleset in rulesets:
-            conditions = ruleset["conditions"]
-            self.rulesFncs[ruleset["name"]] = {"conditions": self.add_conditions(conditions), "combinator": ruleset["combinator"]}
+            self.rulesFncs[ruleset["name"]] = {"conditions": self.add_conditions(ruleset["conditions"], ruleset["combinator"])}
 
     def execute(self, dataset):
         self.res = defaultdict(list)
         self.failures = defaultdict(list)
         for rule_name, rules in self.rulesFncs.items():
+            fcn = rules["conditions"]
             for data in dataset:
                 try:
-                    combinator = rules["combinator"]
-                    if combinator == "AND":
-                        # This short circuit on the first false result
-                        if all(rule(data) for rule in rules["conditions"]):
-                            self.res[rule_name].append(data)
-                    elif combinator == "OR":
-                        # This short circuit on the first true result
-                        if any(rule(data) for rule in rules["conditions"]):
-                            self.res[rule_name].append(data)
+                    if fcn(data):
+                        self.res[rule_name].append(data)
                 except:
                     self.failures[rule_name].append(data)
 
@@ -246,6 +244,8 @@ def main() -> None:
         for rulename, transactions in rule_engine.failures.items()
     }
     every_id = {str(i) for i in range(1, 25)}
+
+    print(res)
 
     assert set(dataset_ids.get("High_Value_Band", [])) == {"4", "11", "22"}
     assert set(dataset_ids.get("Small_Positive", [])) == {"6", "7", "17", "23"}

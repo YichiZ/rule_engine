@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rule-engine"
+version = "0.1.0"
+description = "Rule engine exercises over transaction data"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=2.2.0",
+    "dotenv>=0.9.9",
+]
+
+[tool.setuptools]
+py-modules = [
+    "simple_rule_engine",
+    "rule_engine_2",
+    "rule_engine_3",
+    "rule_engine_4",
+    "rule_engine_5",
+]

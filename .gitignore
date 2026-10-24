@@ -8,4 +8,11 @@ venv/
 *.egg-info/
 dist/
 build/
+wheels/
+.uv/
+uv.lock
+.python-version
 .env
+.env.*
+!.env.example
+.DS_Store
