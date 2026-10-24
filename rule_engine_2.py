@@ -183,46 +183,48 @@ _rulesets = [
     },
 ]
 
+from typing import Callable
+
 class RuleEngine:
-    # This should be just 
-    def add_conditions(self, conditions, combinator) -> list:
-        fncs = []
+    # This could return one lambda
+    def build_predicate(self, conditions, combinator) -> Callable[[dict], bool]:
+        fns = []
         for condition in conditions:
             if condition["operator"] == ">":
-                fcn = lambda x, field=condition["field"], value=condition["value"]: (
+                fn = lambda x, field=condition["field"], value=condition["value"]: (
                     x[field] > value
                 )
-                fncs.append(fcn)
+                fns.append(fn)
             elif condition["operator"] == "<":
-                fcn = lambda x, field=condition["field"], value=condition["value"]: (
+                fn = lambda x, field=condition["field"], value=condition["value"]: (
                     x[field] < value
                 )
-                fncs.append(fcn)
+                fns.append(fn)
             elif condition["operator"] == "==":
-                fcn = lambda x, field=condition["field"], value=condition["value"]: (
+                fn = lambda x, field=condition["field"], value=condition["value"]: (
                     x[field] == value
                 )
-                fncs.append(fcn)
+                fns.append(fn)
 
         if combinator == "AND":
-            return lambda x: all(fnc(x) for fnc in fncs)
+            return lambda x: all(fn(x) for fn in fns)
         if combinator == "OR":
-            return lambda x: any(fnc(x) for fnc in fncs)
+            return lambda x: any(fn(x) for fn in fns)
 
     def __init__(self, rulesets):
         self.rulesFncs = defaultdict(list)
 
         for ruleset in rulesets:
-            self.rulesFncs[ruleset["name"]] = {"conditions": self.add_conditions(ruleset["conditions"], ruleset["combinator"])}
+            self.rulesFncs[ruleset["name"]] = {"conditions": self.build_predicate(ruleset["conditions"], ruleset["combinator"])}
 
     def execute(self, dataset):
         self.res = defaultdict(list)
         self.failures = defaultdict(list)
         for rule_name, rules in self.rulesFncs.items():
-            fcn = rules["conditions"]
+            fn = rules["conditions"]
             for data in dataset:
                 try:
-                    if fcn(data):
+                    if fn(data):
                         self.res[rule_name].append(data)
                 except:
                     self.failures[rule_name].append(data)
@@ -244,8 +246,6 @@ def main() -> None:
         for rulename, transactions in rule_engine.failures.items()
     }
     every_id = {str(i) for i in range(1, 25)}
-
-    print(res)
 
     assert set(dataset_ids.get("High_Value_Band", [])) == {"4", "11", "22"}
     assert set(dataset_ids.get("Small_Positive", [])) == {"6", "7", "17", "23"}

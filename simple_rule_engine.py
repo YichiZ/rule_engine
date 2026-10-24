@@ -78,24 +78,24 @@ from collections import defaultdict
 
 class RuleEngine:
     def add_conditions(self, conditions) -> list:
-        fncs = []
+        fns = []
         for condition in conditions:
             if condition["operator"] == ">":
-                fcn = lambda x, field=condition["field"], value=condition["value"]: (
+                fn = lambda x, field=condition["field"], value=condition["value"]: (
                     x[field] > value
                 )
-                fncs.append(fcn)
+                fns.append(fn)
             elif condition["operator"] == "<":
-                fcn = lambda x, field=condition["field"], value=condition["value"]: (
+                fn = lambda x, field=condition["field"], value=condition["value"]: (
                     x[field] < value
                 )
-                fncs.append(fcn)
+                fns.append(fn)
             elif condition["operator"] == "==":
-                fcn = lambda x, field=condition["field"], value=condition["value"]: (
+                fn = lambda x, field=condition["field"], value=condition["value"]: (
                     x[field] == value
                 )
-                fncs.append(fcn)
-        return fncs
+                fns.append(fn)
+        return fns
 
     def __init__(self, rulesets):
         self.rulesFncs = defaultdict(list)
@@ -109,8 +109,8 @@ class RuleEngine:
         for rule_name, rules in self.rulesFncs.items():
             result = []
             for data in dataset:
-                fcns = [rule(data) for rule in rules]
-                if all(fcns):
+                fns = [rule(data) for rule in rules]
+                if all(fns):
                     result.append(data)
             res[rule_name] = result
 

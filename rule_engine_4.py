@@ -23,37 +23,40 @@ rulesets = [
 
 from decimal import Decimal
 from collections import defaultdict
+from typing import Callable
 
 
 class RuleEngine:
-    def add_conditions(self, conditions) -> list:
-        fncs = []
+    def build_predicate(self, conditions, combinator) -> Callable[[dict], bool]:
+        fns = []
         for condition in conditions:
             if condition["operator"] == ">":
-                fcn = lambda x, field=condition["field"], value=condition["value"]: (
+                fn = lambda x, field=condition["field"], value=condition["value"]: (
                     Decimal(x[field]) > Decimal(value)
                 )
-                fncs.append(fcn)
+                fns.append(fn)
             elif condition["operator"] == "<":
-                fcn = lambda x, field=condition["field"], value=condition["value"]: (
+                fn = lambda x, field=condition["field"], value=condition["value"]: (
                     Decimal(x[field]) < Decimal(value)
                 )
-                fncs.append(fcn)
+                fns.append(fn)
             elif condition["operator"] == "==":
-                fcn = lambda x, field=condition["field"], value=condition["value"]: (
+                fn = lambda x, field=condition["field"], value=condition["value"]: (
                     x[field] == value
                 )
-                fncs.append(fcn)
-        return fncs
+                fns.append(fn)
+
+        if combinator == "AND":
+            return lambda x: all(fn(x) for fn in fns)
+        if combinator == "OR":
+            return lambda x: any(fn(x) for fn in fns)
 
     def __init__(self, rulesets):
         self.rulesFncs = defaultdict(list)
 
         for ruleset in rulesets:
-            conditions = ruleset["conditions"]
             self.rulesFncs[ruleset["name"]] = {
-                "conditions": self.add_conditions(conditions),
-                "combinator": ruleset["combinator"],
+                "conditions": self.build_predicate(ruleset["conditions"], ruleset["combinator"])
             }
 
     def execute(self, dataset):
@@ -62,16 +65,10 @@ class RuleEngine:
 
         for data in dataset:
             for rule_name, rules in self.rulesFncs.items():
+                fn = rules["conditions"]
                 try:
-                    combinator = rules["combinator"]
-                    if combinator == "AND":
-                        # This short circuit on the first false result
-                        if all(rule(data) for rule in rules["conditions"]):
-                            self.res[rule_name].append(data)
-                    elif combinator == "OR":
-                        # This short circuit on the first true result
-                        if any(rule(data) for rule in rules["conditions"]):
-                            self.res[rule_name].append(data)
+                    if fn(data):
+                        self.res[rule_name].append(data)
                 except:
                     self.failures[rule_name].append(data)
 

@@ -1,5 +1,4 @@
 import csv
-from sqlite3 import connect
 
 
 def ingest(path, is_train):
@@ -11,97 +10,83 @@ def ingest(path, is_train):
 
 rulesets = [
     {
-        "id": "1",
-        "name": "Is Fraud",
+        "id": "2",
+        "name": "Amount fingerprint",
         "combinator": "AND",
         "conditions": [
-            {"field": "is_fraud", "operator": "==", "value": "1"},
+            {
+                "field": "category",
+                "operator": "==",
+                "value": "grocery_pos",
+                "type": "single",
+            },
+            {
+                "type": "composite",
+                "combinator": "AND",
+                "conditions": [
+                    {
+                        "type": "single",
+                        "field": "amt",
+                        "operator": ">",
+                        "value": "269.99",
+                    },
+                    {
+                        "type": "single",
+                        "field": "amt",
+                        "operator": "<",
+                        "value": "380.01",
+                    },
+                ],
+            },
         ],
+        "type": "composite",
         "action": "SendAlert",
     },
-    # {
-    #     "id": "2",
-    #     "name": "Amount fingerprint",
-    #     "combinator": "AND",
-    #     "conditions": [
-    #         {
-    #             "field": "category",
-    #             "operator": "==",
-    #             "value": "grocery_pos",
-    #             "type": "single",
-    #         },
-    #         {
-    #             "type": "composite",
-    #             "combinator": "AND",
-    #             "conditions": [
-    #                 {
-    #                     "type": "single",
-    #                     "field": "category",
-    #                     "operator": "==",
-    #                     "value": "grocery_pos",
-    #                 },
-    #                 {
-    #                     "type": "single",
-    #                     "field": "amt",
-    #                     "operator": ">",
-    #                     "value": "269.99",
-    #                 },
-    #                 {
-    #                     "type": "single",
-    #                     "field": "amt",
-    #                     "operator": "<",
-    #                     "value": "380.01",
-    #                 },
-    #             ],
-    #         },
-    #     ],
-    #     "action": "SendAlert",
-    # },
 ]
 
 
 from decimal import Decimal
 from collections import defaultdict
+from typing import Callable
 
 
 class RuleEngine:
-    def get_function(self, condition):
-        if condition["operator"] == ">":
-            fcn = lambda x, field=condition["field"], value=condition["value"]: (
-                Decimal(x[field]) > Decimal(value)
-            )
-            return fcn
-        elif condition["operator"] == "<":
-            fcn = lambda x, field=condition["field"], value=condition["value"]: (
-                Decimal(x[field]) < Decimal(value)
-            )
-            return fcn
-        elif condition["operator"] == "==":
-            fcn = lambda x, field=condition["field"], value=condition["value"]: (
-                x[field] == value
-            )
-            return fcn
+    def build_predicate(self, conditions, combinator) -> Callable[[dict], bool]:
+        fns = []
 
-    def add_conditions(self, conditions) -> list:
-        fncs = []
         for condition in conditions:
-            if condition["type"] == "single":
-                fncs.append(self.get_function(condition))
             if condition["type"] == "composite":
-                if condition["combinator"] == "AND":
-                    fncs.append(all(self.add_conditions))
-                if condition["combinator"] == "OR":
-                    fncs.append(any(self.add_conditions))
-        return fncs
+                fn = self.build_predicate(condition["conditions"], condition["combinator"])
+                fns.append(fn)
+                continue
+
+            if condition["operator"] == ">":
+                fn = lambda x, field=condition["field"], value=condition["value"]: (
+                    Decimal(x[field]) > Decimal(value)
+                )
+                fns.append(fn)
+            elif condition["operator"] == "<":
+                fn = lambda x, field=condition["field"], value=condition["value"]: (
+                    Decimal(x[field]) < Decimal(value)
+                )
+                fns.append(fn)
+            elif condition["operator"] == "==":
+                fn = lambda x, field=condition["field"], value=condition["value"]: (
+                    x[field] == value
+                )
+                fns.append(fn)
+
+        if combinator == "AND":
+            return lambda x: all(fn(x) for fn in fns)
+        if combinator == "OR":
+            return lambda x: any(fn(x) for fn in fns)
 
     def __init__(self, rulesets):
         self.rulesFncs = defaultdict(list)
 
         for ruleset in rulesets:
-            conditions = ruleset["conditions"]
             self.rulesFncs[ruleset["name"]] = {
-                "conditions": self.add_conditions(conditions),
-                "combinator": ruleset["combinator"],
+                "conditions": self.build_predicate(ruleset["conditions"], ruleset["combinator"])
             }
 
     def execute(self, dataset):
@@ -110,16 +95,10 @@ class RuleEngine:
 
         for data in dataset:
             for rule_name, rules in self.rulesFncs.items():
+                fn = rules["conditions"]
                 try:
-                    combinator = rules["combinator"]
-                    if combinator == "AND":
-                        # This short circuit on the first false result
-                        if all(rule(data) for rule in rules["conditions"]):
-                            self.res[rule_name].append(data)
-                    elif combinator == "OR":
-                        # This short circuit on the first true result
-                        if any(rule(data) for rule in rules["conditions"]):
-                            self.res[rule_name].append(data)
+                    if fn(data):
+                        self.res[rule_name].append(data)
                 except:
                     self.failures[rule_name].append(data)
 
@@ -189,8 +168,14 @@ def main() -> None:
     #     rulename: [transaction["id"] for transaction in transactions]
     #     for rulename, transactions in rule_engine.failures.items()
     # }
-    asyncio.run(analyze_with_llm(res["Is Fraud"][:1000]))
-    print(len(res["Is Fraud"]))
+    # asyncio.run(analyze_with_llm(res["Is Fraud"][:1000]))
+    print(len(res["Amount fingerprint"]))
+
+    fingerprint = res["Amount fingerprint"]
+    assert all(row["category"] == "grocery_pos" for row in fingerprint)
+    assert all(
+        Decimal("269.99") < Decimal(row["amt"]) < Decimal("380.01") for row in fingerprint
+    )
 
 
 if __name__ == "__main__":
